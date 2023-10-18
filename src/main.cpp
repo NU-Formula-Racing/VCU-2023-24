@@ -3,12 +3,11 @@
 #include "inverter_driver.h"
 #include "throttle_driver.h"
 #include "virtualTimer.h"
+#include "teensy_can.h"
 
 #define SERIAL_DEBUG
-
-#include "teensy_can.h"
 // The tx and rx pins are constructor arguments to ESPCan, which default to TX = 5, RX = 4
-TeensyCAN<2> can_bus{};
+TeensyCAN<2> can_bus_priority{},can_bus{};
 
 // Structure for handling timers
 VirtualTimerGroup read_timer;
