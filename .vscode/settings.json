@@ -73,5 +73,6 @@
         "fstream": "cpp",
         "iomanip": "cpp",
         "cinttypes": "cpp"
-    }
+    },
+    "cmake.configureOnOpen": true
 }

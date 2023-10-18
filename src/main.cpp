@@ -6,9 +6,9 @@
 
 #define SERIAL_DEBUG
 
-#include "esp_can.h"
+#include "teensy_can.h"
 // The tx and rx pins are constructor arguments to ESPCan, which default to TX = 5, RX = 4
-ESPCAN can_bus{10, gpio_num_t::GPIO_NUM_22, gpio_num_t::GPIO_NUM_21};
+TeensyCAN<2> can_bus{};
 
 // Structure for handling timers
 VirtualTimerGroup read_timer;
