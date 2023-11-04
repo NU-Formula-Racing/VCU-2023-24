@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <map>
 
 #include "inverter_driver.h"
 #include "throttle_driver.h"
@@ -54,6 +55,8 @@ void processState()
     // Write code here
 }
 
+
+
 void setup()
 {
     // Write code here
@@ -62,4 +65,23 @@ void setup()
 void loop()
 {
     // Write code here
+}
+
+float lookup(std::map<int, float> table, int key) {
+    std::map<int, float>::iterator it = table.find(key);
+    if(it != table.end()) {
+        return table.at(key);
+    }
+    else {
+        it = table.begin();
+        int prev = it->first;
+        it++;
+        for (it; it != table.end(); it++) {
+            int curr = it->first;
+            if(key > prev && key < curr) {
+                return (table.at(prev) + table.at(curr)) / 2;
+            }
+            prev = curr;
+        }
+    }
 }
