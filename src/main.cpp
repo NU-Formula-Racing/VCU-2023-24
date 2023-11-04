@@ -6,7 +6,7 @@
 #include "teensy_can.h"
 
 #define SERIAL_DEBUG
-// The tx and rx pins are constructor arguments to ESPCan, which default to TX = 5, RX = 4
+
 TeensyCAN<2> can_bus_priority{},can_bus{};
 
 // Structure for handling timers
