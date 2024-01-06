@@ -52,6 +52,13 @@ CANSignal<BMSState, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0)
 CANRXMessage<1> BMS_message{can_bus, 0x241, BMS_State};
 CANSignal<BMSCommand, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_Command{};
 CANTXMessage<1> BMS_command_message{can_bus, 0x242, 8, 100, read_timer, BMS_Command};
+// Throttle Angle
+// Throttle Active
+// Brake Pressed
+// Motor Temp
+// Motor RPM
+// Inverter Temp
+// Battery Temp
 
 void changeState()
 {
