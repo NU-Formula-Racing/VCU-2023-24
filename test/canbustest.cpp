@@ -49,16 +49,19 @@ int maxtorque;
 
 // CAN Signals
 CANSignal<BMSState, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_State{};
-CANRXMessage<1> BMS_message{can_bus, 0x241, BMS_State};
 CANSignal<BMSCommand, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_Command{};
+CANSignal<float, 8, 8, CANTemplateConvertFloat(0.1), CANTemplateConvertFloat(0), false> batt_temp{};
+CANRXMessage<2> BMS_message{can_bus, 0x241, BMS_State, batt_temp};
 CANTXMessage<1> BMS_command_message{can_bus, 0x242, 8, 100, read_timer, BMS_Command};
-// Throttle Angle
-// Throttle Active
-// Brake Pressed
-// Motor Temp
-// Motor RPM
-// Inverter Temp
-// Battery Temp
+// BMS State - 241
+// BMS Command - 242
+// Throttle Angle - throttle.GetThrottleAngle()
+// Throttle Active - throttle.IsThrottleActive()
+// Brake Pressed - throttle.IsBrakePressed()
+// Motor Temp - inverter.GetMotorTemperature()
+// Motor RPM - inverter.GetRPM()
+// Inverter Temp - inverter.GetInverterTemperature()
+// Battery Temp - 241
 
 void changeState()
 {
@@ -119,10 +122,15 @@ void processState()
             break;
         case DRIVE:
             // request torque based on pedal values
-            // maxtorque = getMaxTorque(motortemp, invtemp, battemp, motorrpm, throttleangle);
+            maxtorque = getMaxTorque(inverter.GetMotorTemperature(), inverter.GetInverterTemperature(), batt_temp, inverter.GetRPM(), throttle.GetThrottleAngle());
             inverter.RequestTorque(maxtorque/230);
             break;
     }
+}
+
+void test()
+{
+    Serial.print("Hello");
 }
 
 void setup()
@@ -130,16 +138,18 @@ void setup()
     // Write code here
     #ifdef SERIAL_DEBUG
     // Initialize serial output
-    Serial.begin(9600);  // Baud rate (Can transfer max of 9600 bits/second)
+    Serial.begin(115200);  // Baud rate (Can transfer max of 115200 bits/second)
     #endif
 
     // Initialize can bus
     can_bus.Initialize(ICAN::BaudRate::kBaud1M);
+    can_bus_priority.Initialize(ICAN::BaudRate::kBaud1M);
 
     // Initialize our timer(s)
     // read_timer.AddTimer(10, RequestTorque);
     read_timer.AddTimer(10, changeState);
     read_timer.AddTimer(10, processState);
+    read_timer.AddTimer(1000, test);
 
     // Request values from inverter
     inverter.RequestMotorTemperature(100);
