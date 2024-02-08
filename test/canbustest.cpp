@@ -9,7 +9,8 @@
 
 #define SERIAL_DEBUG
 
-TeensyCAN<2> can_bus_priority{},can_bus{};
+TeensyCAN<1> can_bus{};
+TeensyCAN<2> can_bus_priority{};
 
 // Structure for handling timers
 VirtualTimerGroup read_timer;
@@ -45,12 +46,13 @@ enum state
 
 state currentState = OFF;
 bool drivelever = false;
-int maxtorque;
+int maxtorque = 230;
+bool debug = true;
 
 // CAN Signals
 CANSignal<BMSState, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_State{};
 CANSignal<BMSCommand, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_Command{};
-CANSignal<float, 8, 8, CANTemplateConvertFloat(0.1), CANTemplateConvertFloat(0), false> batt_temp{};
+CANSignal<float, 8, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(-40), false> batt_temp{};
 CANRXMessage<2> BMS_message{can_bus, 0x241, BMS_State, batt_temp};
 CANTXMessage<1> BMS_command_message{can_bus, 0x242, 8, 100, read_timer, BMS_Command};
 // BMS State - 241
@@ -122,7 +124,7 @@ void processState()
             break;
         case DRIVE:
             // request torque based on pedal values
-            maxtorque = getMaxTorque(inverter.GetMotorTemperature(), inverter.GetInverterTemperature(), batt_temp, inverter.GetRPM(), throttle.GetThrottleAngle());
+            // maxtorque = getMaxTorque(inverter.GetMotorTemperature(), inverter.GetInverterTemperature(), batt_temp, inverter.GetRPM(), throttle.GetThrottleAngle());
             inverter.RequestTorque(maxtorque/230);
             break;
     }
@@ -130,7 +132,16 @@ void processState()
 
 void test()
 {
-    Serial.print("Hello");
+    Serial.printf("State: %d", currentState);
+    // Serial.printf("BMS State: %d", BMS_State);
+    // Serial.printf("BMS Command: %d", BMS_Command);
+    Serial.printf("Drive Lever: %d", drivelever);
+    // Serial.printf("Battery Temperature: %d", batt_temp);
+    Serial.printf("Motor Temperature: %d", inverter.GetMotorTemperature());
+    Serial.printf("Inverter Temperature: %d", inverter.GetInverterTemperature());
+    Serial.printf("RPM: %d", inverter.GetRPM());
+    Serial.printf("Thottle Angle: %d", throttle.GetThrottleAngle());
+    Serial.printf("Maximum Torque: %d", maxtorque);
 }
 
 void setup()
@@ -149,7 +160,9 @@ void setup()
     // read_timer.AddTimer(10, RequestTorque);
     read_timer.AddTimer(10, changeState);
     read_timer.AddTimer(10, processState);
-    read_timer.AddTimer(1000, test);
+    if (debug) {
+        read_timer.AddTimer(1000, test);
+    }
 
     // Request values from inverter
     inverter.RequestMotorTemperature(100);
@@ -165,6 +178,11 @@ void loop()
 }
 
 int lookup(std::map<int, int> table, int key) {
+	if (key < table.begin()->first) {
+		return table.at(table.begin()->first);
+	} else if (key > (prev(table.end()))->first) {
+		return table.at(prev(table.end())->first);
+	}
     std::map<int, int>::iterator it = table.find(key);
     if(it != table.end()) {
         return table.at(key);
@@ -173,14 +191,16 @@ int lookup(std::map<int, int> table, int key) {
         it = table.begin();
         int prev = it->first;
         it++;
-        for (it; it != table.end(); it++) {
+        while (it != table.end()) {
             int curr = it->first;
             if(key > prev && key < curr) {
-                return (table.at(prev) + table.at(curr)) / 2;
+                return table.at(prev) - (table.at(prev) - table.at(curr))*(key-prev)/(curr-prev);
             }
             prev = curr;
+            it++;
         }
     }
+    return 0;
 }
 
 int getMaxTorque(int motortemp, int invtemp, int battemp, int motorrpm, int throttleangle) {
