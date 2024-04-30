@@ -182,8 +182,6 @@ void setup()
     // Initialize can bus
     can_bus_priority.Initialize(ICAN::BaudRate::kBaud1M);
     can_bus_priority.RegisterRXMessage(BMS_message);
-    can_bus_priority.RegisterRXMessage(throttle.throttle_message);
-    can_bus_priority.RegisterRXMessage(inverter.Receive_Msg);
     pinMode(PIN_A0, INPUT);
     // can_bus_priority.Initialize(ICAN::BaudRate::kBaud1M);
 
@@ -195,7 +193,11 @@ void setup()
         read_timer.AddTimer(1000, test);
     }
 
+    // Initialize Throttle
+    // throttle.Initialize();
+
     // Request values from inverter
+    inverter.Initialize();
     inverter.RequestMotorTemperature(100);
     inverter.RequestRPM(100);
     inverter.RequestPowerStageTemp(100);
