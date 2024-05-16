@@ -49,18 +49,19 @@ enum state
     DRIVE
 };
 
-state currentState = OFF;
 #define drivelever digitalRead(PIN_A0);
 uint16_t maxtorque = 230;
 bool debug = true;
+bool drive_lever = false;
 
 // CAN Signals priority
 CANSignal<BMSState, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_State{};
 CANSignal<BMSCommand, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_Command{};
 CANSignal<float, 8, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(-40), false> batt_temp{};
+CANSignal<uint8_t, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> currentState{};
 CANRXMessage<2> BMS_message{can_bus_priority, 0x241, BMS_State, batt_temp};
 CANTXMessage<1> BMS_command_message{can_bus_priority, 0x242, 8, 100, read_timer, BMS_Command};
-
+CANTXMessage<1> Drive_status{can_bus_priority, 0x000, 8, 100, read_timer, currentState};
 // Can Signals general
 // CANSignal<BMSState, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_State_gen{};
 // CANSignal<BMSCommand, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_Command_gen{};
@@ -79,7 +80,7 @@ CANTXMessage<1> BMS_command_message{can_bus_priority, 0x242, 8, 100, read_timer,
 // // Battery Temp - 241
 int getMaxTorque(int motortemp, int invtemp, int battemp, int motorrpm, int throttleangle);
 void requestInverter();
-uint16_t convert(float fval);
+void state_change();
 
 void changeState()
 {
@@ -95,7 +96,7 @@ void changeState()
             break;
         case N:
             // if drive button and brake pressed and potentiometers agree, switch to DRIVE
-            if (throttle.IsBrakePressed() && digitalRead(PIN_A0) == HIGH)
+            if (throttle.IsBrakePressed() && drive_lever && BMS_State == BMSState::kActive)
             {
                 currentState = DRIVE;
             }
@@ -103,6 +104,7 @@ void changeState()
             if (BMS_State == BMSState::kFault || BMS_State == BMSState::kShutdown)
             {
                 currentState = OFF;
+                drive_lever = false;
             }
             break;
         case DRIVE:
@@ -111,9 +113,10 @@ void changeState()
             if (BMS_State == BMSState::kFault)
             {
                 currentState = OFF;
+                drive_lever = false;
             }
             // if drive button is off, switch to neutral
-            if (digitalRead(PIN_A0) == LOW)
+            if (drive_lever == false)
             {
                 currentState = N;
             }
@@ -122,7 +125,7 @@ void changeState()
 }
 
 void processState()
-{
+{   
     // Write code here
     switch (currentState)
     {
@@ -144,14 +147,19 @@ void processState()
             if (throttle.IsBrakePressed() || !throttle.IsThrottleActive()) {
                 maxtorque = 0;
             }
+            if (maxtorque > 23) {
+                maxtorque = 23;
+            }
             inverter.RequestTorque(maxtorque*100/230);
+
             break;
     }
 }
 
 void test()
 {
-    Serial.printf("State: %d\n", currentState);
+    Serial.print("State: ");
+    Serial.println((int) currentState);
     Serial.print("BMS State: ");
     Serial.println(BMS_State);
     Serial.print("BMS Command: ");
@@ -182,7 +190,6 @@ void setup()
     // Initialize can bus
     can_bus_priority.Initialize(ICAN::BaudRate::kBaud1M);
     can_bus_priority.RegisterRXMessage(BMS_message);
-    pinMode(PIN_A0, INPUT);
     // can_bus_priority.Initialize(ICAN::BaudRate::kBaud1M);
 
     // Initialize our timer(s)
@@ -194,7 +201,7 @@ void setup()
     }
 
     // Initialize Throttle
-    // throttle.Initialize();
+    throttle.Initialize();
 
     // Request values from inverter
     inverter.Initialize();
@@ -202,6 +209,10 @@ void setup()
     inverter.RequestRPM(100);
     inverter.RequestPowerStageTemp(100);
     // read_timer.AddTimer(1000, requestInverter);
+
+    // Initialize drive lever
+    pinMode(PIN_A0, INPUT);
+    attachInterrupt(digitalPinToInterrupt(PIN_A0), state_change, CHANGE);
 }
 
 void loop()
@@ -276,9 +287,10 @@ void requestInverter() {
     inverter.RequestRPM(100);
 }
 
-uint16_t convert(float fval)
-{
-    if (fval < -40) return(0);
-    if (fval > 120) return(UINT16_MAX);
-    return(lrintf((fval + 40) / 160 * UINT16_MAX));
+void state_change() {
+    if (digitalRead(PIN_A0) == LOW) {
+        drive_lever = false;
+    } else {
+        drive_lever = true;
+    }
 }
