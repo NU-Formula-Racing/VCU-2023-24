@@ -1,11 +1,12 @@
 #include <Arduino.h>
+
 #include <map>
 
+#include "LUT.h"
 #include "inverter_driver.h"
+#include "teensy_can.h"
 #include "throttle_driver.h"
 #include "virtualTimer.h"
-#include "teensy_can.h"
-#include "LUT.h"
 
 #define SERIAL_DEBUG
 
@@ -49,18 +50,19 @@ enum state
     DRIVE
 };
 
-state currentState = OFF;
 #define drivelever digitalRead(PIN_A0);
 uint16_t maxtorque = 230;
 bool debug = true;
+bool drive_lever = false;
 
 // CAN Signals priority
 CANSignal<BMSState, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_State{};
 CANSignal<BMSCommand, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_Command{};
 CANSignal<float, 8, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(-40), false> batt_temp{};
+CANSignal<uint8_t, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> currentState{};
 CANRXMessage<2> BMS_message{can_bus_priority, 0x241, BMS_State, batt_temp};
 CANTXMessage<1> BMS_command_message{can_bus_priority, 0x242, 8, 100, read_timer, BMS_Command};
-
+CANTXMessage<1> Drive_status{can_bus_priority, 0x000, 8, 100, read_timer, currentState};
 // Can Signals general
 // CANSignal<BMSState, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_State_gen{};
 // CANSignal<BMSCommand, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_Command_gen{};
@@ -79,7 +81,7 @@ CANTXMessage<1> BMS_command_message{can_bus_priority, 0x242, 8, 100, read_timer,
 // // Battery Temp - 241
 int getMaxTorque(int motortemp, int invtemp, int battemp, int motorrpm, int throttleangle);
 void requestInverter();
-uint16_t convert(float fval);
+void state_change();
 
 void changeState()
 {
@@ -95,7 +97,7 @@ void changeState()
             break;
         case N:
             // if drive button and brake pressed and potentiometers agree, switch to DRIVE
-            if (throttle.IsBrakePressed() && digitalRead(PIN_A0) == HIGH)
+            if (throttle.IsBrakePressed() && drive_lever && (BMS_State == BMSState::kActive))
             {
                 currentState = DRIVE;
             }
@@ -103,6 +105,7 @@ void changeState()
             if (BMS_State == BMSState::kFault || BMS_State == BMSState::kShutdown)
             {
                 currentState = OFF;
+                drive_lever = false;
             }
             break;
         case DRIVE:
@@ -111,9 +114,10 @@ void changeState()
             if (BMS_State == BMSState::kFault)
             {
                 currentState = OFF;
+                drive_lever = false;
             }
             // if drive button is off, switch to neutral
-            if (digitalRead(PIN_A0) == LOW)
+            if (drive_lever == false)
             {
                 currentState = N;
             }
@@ -140,66 +144,87 @@ void processState()
             break;
         case DRIVE:
             // request torque based on pedal values
-            maxtorque = getMaxTorque((int)inverter.GetMotorTemperature(), (int)inverter.GetInverterTemperature(), (int)batt_temp, (int)inverter.GetRPM(), (int)throttle.GetThrottleAngle());
-            if (throttle.IsBrakePressed() || !throttle.IsThrottleActive()) {
+            maxtorque = getMaxTorque((int)inverter.GetMotorTemperature(),
+                                     (int)inverter.GetInverterTemperature(),
+                                     (int)batt_temp,
+                                     (int)inverter.GetRPM(),
+                                     (int)throttle.GetThrottleAngle());
+            if (throttle.IsBrakePressed() || !throttle.IsThrottleActive())
+            {
                 maxtorque = 0;
             }
-            inverter.RequestTorque(maxtorque*100/230);
+            if (maxtorque > 23)
+            {
+                maxtorque = 23;
+            }
+            inverter.RequestTorque(maxtorque * 100 / 230);
+
             break;
     }
 }
 
 void test()
 {
-    Serial.printf("State: %d\n", currentState);
+    Serial.print("State: ");
+    Serial.println((int)currentState);
     Serial.print("BMS State: ");
     Serial.println(BMS_State);
     Serial.print("BMS Command: ");
     Serial.println(BMS_Command);
-    Serial.printf("Drive Lever: %d\n", digitalRead(PIN_A0));
+    Serial.printf("Drive Lever: %d\n", drive_lever);
     Serial.print("Battery Temperature: ");
-    Serial.println((int) batt_temp);
+    Serial.println((int)batt_temp);
     Serial.printf("Motor Temperature: %f\n", inverter.GetMotorTemperature());
     Serial.printf("Inverter Temperature: %f\n", inverter.GetInverterTemperature());
     Serial.printf("RPM: %f\n", inverter.GetRPM());
-    Serial.printf("Throttle Angle: %d\n", (int) throttle.GetThrottleAngle());
+    Serial.printf("Throttle Angle: %d\n", (int)throttle.GetThrottleAngle());
     Serial.printf("Throttle Active: %d\n", throttle.IsThrottleActive());
     Serial.printf("Brake Pressed: %d\n", throttle.IsBrakePressed());
     Serial.printf("Maximum Torque: %d\n", maxtorque);
-    Serial.printf("Maximum Torque Percent: %d\n", maxtorque*100/230);
+    Serial.printf("Maximum Torque Percent: %d\n", maxtorque * 100 / 230);
     // LUT info
-    getMaxTorque((int)inverter.GetMotorTemperature(), (int)inverter.GetInverterTemperature(), (int)batt_temp, (int)inverter.GetRPM(), (int)throttle.GetThrottleAngle());
+    getMaxTorque((int)inverter.GetMotorTemperature(),
+                 (int)inverter.GetInverterTemperature(),
+                 (int)batt_temp,
+                 (int)inverter.GetRPM(),
+                 (int)throttle.GetThrottleAngle());
 }
 
 void setup()
 {
-    // Write code here
-    #ifdef SERIAL_DEBUG
+// Write code here
+#ifdef SERIAL_DEBUG
     // Initialize serial output
     Serial.begin(115200);  // Baud rate (Can transfer max of 115200 bits/second)
-    #endif
+#endif
 
     // Initialize can bus
     can_bus_priority.Initialize(ICAN::BaudRate::kBaud1M);
     can_bus_priority.RegisterRXMessage(BMS_message);
-    can_bus_priority.RegisterRXMessage(throttle.throttle_message);
-    can_bus_priority.RegisterRXMessage(inverter.Receive_Msg);
-    pinMode(PIN_A0, INPUT);
     // can_bus_priority.Initialize(ICAN::BaudRate::kBaud1M);
 
     // Initialize our timer(s)
     // read_timer.AddTimer(10, RequestTorque);
     read_timer.AddTimer(10, changeState);
     read_timer.AddTimer(10, processState);
-    if (debug) {
+    if (debug)
+    {
         read_timer.AddTimer(1000, test);
     }
 
+    // Initialize Throttle
+    throttle.Initialize();
+    //
     // Request values from inverter
+    inverter.Initialize();
     inverter.RequestMotorTemperature(100);
     inverter.RequestRPM(100);
     inverter.RequestPowerStageTemp(100);
     // read_timer.AddTimer(1000, requestInverter);
+
+    // Initialize drive lever
+    pinMode(2, INPUT);
+    attachInterrupt(digitalPinToInterrupt(2), state_change, CHANGE);
 }
 
 void loop()
@@ -210,24 +235,32 @@ void loop()
     can_bus_priority.Tick();
 }
 
-int lookup(std::map<int, int> table, int key) {
-	if (key < table.begin()->first) {
-		return table.at(table.begin()->first);
-	} else if (key > (prev(table.end()))->first) {
-		return table.at(prev(table.end())->first);
-	}
+int lookup(std::map<int, int> table, int key)
+{
+    if (key < table.begin()->first)
+    {
+        return table.at(table.begin()->first);
+    }
+    else if (key > (prev(table.end()))->first)
+    {
+        return table.at(prev(table.end())->first);
+    }
     std::map<int, int>::iterator it = table.find(key);
-    if(it != table.end()) {
+    if (it != table.end())
+    {
         return table.at(key);
     }
-    else {
+    else
+    {
         it = table.begin();
         int prev = it->first;
         it++;
-        while (it != table.end()) {
+        while (it != table.end())
+        {
             int curr = it->first;
-            if(key > prev && key < curr) {
-                return table.at(prev) - (table.at(prev) - table.at(curr))*(key-prev)/(curr-prev);
+            if (key > prev && key < curr)
+            {
+                return table.at(prev) - (table.at(prev) - table.at(curr)) * (key - prev) / (curr - prev);
             }
             prev = curr;
             it++;
@@ -236,8 +269,10 @@ int lookup(std::map<int, int> table, int key) {
     return 0;
 }
 
-int getMaxTorque(int motortemp, int invtemp, int battemp, int motorrpm, int throttleangle) {
-    if (motorrpm == 0) {
+int getMaxTorque(int motortemp, int invtemp, int battemp, int motorrpm, int throttleangle)
+{
+    if (motorrpm == 0)
+    {
         motorrpm = 1;
     }
     int mtt = lookup(mttlut, motortemp);
@@ -245,38 +280,47 @@ int getMaxTorque(int motortemp, int invtemp, int battemp, int motorrpm, int thro
     int bta = lookup(btalut, battemp);
     int mrt = lookup(mrtlut, motorrpm);
     int tm = lookup(tmlut, throttleangle);
-    int itt = ita*0.94;
-    int btt = 9.5488*540*bta/motorrpm;
-    int tt = tm*2.3;
+    int itt = ita * 0.94;
+    int btt = 9.5488 * 540 * bta / motorrpm;
+    int tt = tm * 2.3;
     int maxtorque = std::min({mtt, mrt, itt, btt, tt});
     return maxtorque;
 }
 
-float calc_slip(int fws, int rws) {
-    if (fws == 0) {
+float calc_slip(int fws, int rws)
+{
+    if (fws == 0)
+    {
         fws = 1;
     }
-    return ((float) rws/fws - 1);
+    return ((float)rws / fws - 1);
 }
 
-int pid(float slip, float target, float eprev, float dt) {
+int pid(float slip, float target, float eprev, float dt)
+{
     float kp, ki, kd;
     float e = slip - target;
     float eint = e + eprev;
-    float eder = (e - eprev)/dt;
-    float u = kp*e + ki*eint + kd*eder;
+    float eder = (e - eprev) / dt;
+    float u = kp * e + ki * eint + kd * eder;
     return u;
 }
 
-void requestInverter() {
+void requestInverter()
+{
     // Request values from inverter
     inverter.RequestMotorTemperature(100);
     inverter.RequestRPM(100);
 }
 
-uint16_t convert(float fval)
+void state_change()
 {
-    if (fval < -40) return(0);
-    if (fval > 120) return(UINT16_MAX);
-    return(lrintf((fval + 40) / 160 * UINT16_MAX));
+    if (digitalRead(2) == LOW)
+    {
+        drive_lever = false;
+    }
+    else
+    {
+        drive_lever = true;
+    }
 }
