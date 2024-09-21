@@ -164,7 +164,7 @@ void processState()
             // {
             //     maxtorque = 23;
             // }
-            inverter.RequestTorque(maxtorque);
+            inverter.RequestTorque(5); //maxtorque
 
             break;
     }
