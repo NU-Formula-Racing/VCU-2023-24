@@ -51,7 +51,8 @@ enum state
 };
 
 #define DRIVE_PIN 9
-uint16_t maxtorque = 5;
+#define MAX_TORQUE_ALLOWED 20
+uint8_t maxtorque = 230;
 bool debug = true;
 bool drive_lever = false;
 
@@ -149,23 +150,41 @@ void processState()
             break;
         case DRIVE:
             // request torque based on pedal values
-            maxtorque = getMaxTorque((int)inverter.GetMotorTemperature(),
-                                     (int)inverter.GetInverterTemperature(),
-                                     BMS_Max_discharge_current,
-                                     (int)inverter.GetRPM(),
-                                     throttle.GetThrottleAngle());
+            // maxtorque = getMaxTorque((int)inverter.GetMotorTemperature(),
+            //                          (int)inverter.GetInverterTemperature(),
+            //                          BMS_Max_discharge_current,
+            //                          (int)inverter.GetRPM(),
+            //                          throttle.GetThrottleAngle());
+            maxtorque = ((float)throttle.GetThrottleAngle() / 32767) * MAX_TORQUE_ALLOWED;
+            // Serial.printf("Throttle Angle: %d\n", (int)throttle.GetThrottleAngle());
             // maxtorque = throttle.GetThrottleAngle();
             if (throttle.IsBrakePressed() || !throttle.IsThrottleActive())
             {
                 maxtorque = 0;
             }
-            maxTorqueSignal = maxtorque;
-            // if (maxtorque > 23)
-            // {
-            //     maxtorque = 23;
-            // }
-            inverter.RequestTorque(5); //maxtorque
+            // maxTorqueSignal = (int16_t)maxtorque;
 
+            Serial.printf("Max Torque: %d\n", maxtorque);
+            uint8_t torqueResut = 0;
+            if (maxtorque < 0)
+            {
+                Serial.println("Negative torque");
+                torqueResut = 0;
+            }
+            else if (maxtorque > MAX_TORQUE_ALLOWED)
+            {
+                Serial.println("Max torque");
+                torqueResut = MAX_TORQUE_ALLOWED;
+            }
+            else
+            {
+                Serial.println("Normal torque");
+                torqueResut = maxtorque;
+            }
+
+            Serial.printf("Torque Result: %d\n", torqueResut);
+            
+            inverter.RequestTorque(maxtorque); //maxtorque
             break;
     }
 }
