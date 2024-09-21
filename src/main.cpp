@@ -51,7 +51,7 @@ enum state
 };
 
 #define DRIVE_PIN 9
-uint16_t maxtorque = 230;
+uint16_t maxtorque = 5;
 bool debug = true;
 bool drive_lever = false;
 
