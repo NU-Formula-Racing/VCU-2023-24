@@ -165,25 +165,25 @@ void processState()
             // maxTorqueSignal = (int16_t)maxtorque;
 
             Serial.printf("Max Torque: %d\n", maxtorque);
-            uint8_t torqueResut = 0;
+            uint8_t torqueResult = 0;
             if (maxtorque < 0)
             {
                 Serial.println("Negative torque");
-                torqueResut = 0;
+                torqueResult = 0;
             }
             else if (maxtorque > MAX_TORQUE_ALLOWED)
             {
                 Serial.println("Max torque");
-                torqueResut = MAX_TORQUE_ALLOWED;
+                torqueResult = MAX_TORQUE_ALLOWED;
             }
             else
             {
                 Serial.println("Normal torque");
-                torqueResut = maxtorque;
+                torqueResult = maxtorque;
             }
 
-            Serial.printf("Torque Result: %d\n", torqueResut);
-            
+            Serial.printf("Torque Result: %d\n", torqueResult);
+
             inverter.RequestTorque(maxtorque); //maxtorque
             break;
     }
