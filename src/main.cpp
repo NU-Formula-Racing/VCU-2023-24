@@ -12,7 +12,7 @@
 
 // All messages received on priority bus
 // All messages sent on both buses
-TeensyCAN<2> can_bus_priority{};
+TeensyCAN<1> can_bus_priority{};
 // TeensyCAN<2> can_bus_gen{};
 // TeensyCAN<3> inverted_bus{};
 
@@ -64,6 +64,10 @@ CANRXMessage<1> BMS_soe_message{can_bus_priority, 0x240, BMS_Max_discharge_curre
 CANRXMessage<1> BMS_status_message{can_bus_priority, 0x241, BMS_State};
 CANTXMessage<1> BMS_command_message{can_bus_priority, 0x242, 8, 100, read_timer, BMS_Command};
 CANTXMessage<1> Drive_status{can_bus_priority, 0x000, 8, 100, read_timer, currentState};
+CANSignal<int16_t, 0, 16, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), true> maxTorqueSignal{};
+CANTXMessage<1> Torque_request{can_bus_priority, 0x001, 8, 100, read_timer, maxTorqueSignal};
+CANSignal<uint32_t, 0, 32, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> errorSignal{};
+CANTXMessage<1> Inverter_error{can_bus_priority, 0x002, 8, 100, read_timer, errorSignal};
 // Can Signals general
 // CANSignal<BMSState, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_State_gen{};
 // CANSignal<BMSCommand, 0, 8, CANTemplateConvertFloat(1), CANTemplateConvertFloat(0), false> BMS_Command_gen{};
@@ -80,7 +84,7 @@ CANTXMessage<1> Drive_status{can_bus_priority, 0x000, 8, 100, read_timer, curren
 // // Motor RPM - inverter.GetRPM()
 // // Inverter Temp - inverter.GetInverterTemperature()
 // // Battery Temp - 241
-int getMaxTorque(int motortemp, int invtemp, float max_dis_cur, int motorrpm, int throttleangle);
+int16_t getMaxTorque(int motortemp, int invtemp, float max_dis_cur, int motorrpm, int16_t throttleangle);
 void requestInverter();
 void state_change();
 
@@ -135,7 +139,7 @@ void processState()
             // do nothing
             BMS_Command = BMSCommand::PrechargeAndCloseContactors;
             maxtorque = 0;
-            // inverter.RequestTorque(maxtorque);
+            inverter.RequestTorque(maxtorque);
             break;
         case N:
             // send message to BMS (BMS command message)
@@ -149,16 +153,18 @@ void processState()
                                      (int)inverter.GetInverterTemperature(),
                                      BMS_Max_discharge_current,
                                      (int)inverter.GetRPM(),
-                                     (int)throttle.GetThrottleAngle());
+                                     throttle.GetThrottleAngle());
+            // maxtorque = throttle.GetThrottleAngle();
             if (throttle.IsBrakePressed() || !throttle.IsThrottleActive())
             {
                 maxtorque = 0;
             }
-            if (maxtorque > 23)
-            {
-                maxtorque = 23;
-            }
-            inverter.RequestTorque(maxtorque * 100 / 230);
+            maxTorqueSignal = maxtorque;
+            // if (maxtorque > 23)
+            // {
+            //     maxtorque = 23;
+            // }
+            inverter.RequestTorque(maxtorque);
 
             break;
     }
@@ -222,11 +228,13 @@ void setup()
     inverter.RequestMotorTemperature(100);
     inverter.RequestRPM(100);
     inverter.RequestPowerStageTemp(100);
-    // read_timer.AddTimer(1000, requestInverter);
+    inverter.RequestStatus(100);
+    read_timer.AddTimer(1000, requestInverter, 5);
+    read_timer.AddTimer(10, state_change);
 
     // Initialize drive lever
-    pinMode(DRIVE_PIN, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(DRIVE_PIN), state_change, CHANGE);
+    // pinMode(DRIVE_PIN, INPUT_PULLUP);
+    // attachInterrupt(digitalPinToInterrupt(DRIVE_PIN), state_change, CHANGE);
     pinMode(3, OUTPUT);
     pinMode(4, OUTPUT);
     digitalWrite(3, LOW);
@@ -275,22 +283,22 @@ int lookup(std::map<int, int> table, int key)
     return 0;
 }
 
-int getMaxTorque(int motortemp, int invtemp, float max_dis_cur, int motorrpm, int throttleangle)
+int16_t getMaxTorque(int motortemp, int invtemp, float max_dis_cur, int motorrpm, int16_t throttleangle)
 {
     if (motorrpm == 0)
     {
         motorrpm = 1;
     }
-    int mtt = lookup(mttlut, motortemp);
+    int mtt = lookup(mttlut, motortemp) * 32767 / 230;
     int ita = lookup(italut, invtemp);
     // int bta = lookup(btalut, battemp);
-    int mrt = lookup(mrtlut, motorrpm);
-    int tm = lookup(tmlut, throttleangle);
-    int itt = ita * 0.94;
-    int btt = 9.5488 * 540 * max_dis_cur / motorrpm;
-    int tt = tm * 2.3;
-    int maxtorque = std::min({mtt, mrt, itt, btt, tt});
-    return maxtorque;
+    int mrt = lookup(mrtlut, motorrpm) * 32767 / 230;
+    int tm = throttleangle;  // lookup(tmlut, throttleangle);
+    int itt = ita * 0.94 * 32767 / 230;
+    // int btt = 9.5488 * 540 * max_dis_cur / motorrpm * 32767 / 230;
+    // int tt = tm * 2.3;
+    int maxtorque = std::min({mtt, mrt, itt, tm});
+    return static_cast<int16_t>(maxtorque);
 }
 
 float calc_slip(int fws, int rws)
@@ -317,16 +325,26 @@ void requestInverter()
     // Request values from inverter
     inverter.RequestMotorTemperature(100);
     inverter.RequestRPM(100);
+    inverter.RequestStatus(100);
 }
 
 void state_change()
 {
-    if (digitalRead(DRIVE_PIN) == HIGH)
+    // if (digitalRead(DRIVE_PIN) == HIGH)
+    // {
+    //     drive_lever = false;
+    // }
+    // else
+    // {
+    //     drive_lever = true;
+    // }
+    // errorSignal = inverter.GetErrorStatus();
+    if (inverter.GetStatus().En)
     {
-        drive_lever = false;
+        drive_lever = true;
     }
     else
     {
-        drive_lever = true;
+        drive_lever = false;
     }
 }
