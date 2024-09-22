@@ -158,32 +158,23 @@ void processState()
             maxtorque = ((float)throttle.GetThrottleAngle() / 32767) * MAX_TORQUE_ALLOWED;
             // Serial.printf("Throttle Angle: %d\n", (int)throttle.GetThrottleAngle());
             // maxtorque = throttle.GetThrottleAngle();
-            if (throttle.IsBrakePressed() || !throttle.IsThrottleActive())
+            Serial.printf("THROTTLE input setting maxtorque to ** %d\n", maxtorque);
+
+                // THIS IF STATEMENT IS FUCKING SHIT UP. For some reason VCU is reading the brake_pressed value from ETC incorrectly
+            // if (throttle.IsBrakePressed())
+            // {
+            //     Serial.println("maxtorque being set to ZERO by IsBrakePressed()!!!!");
+            //     maxtorque = 0;
+            // }
+            if (!throttle.IsThrottleActive())
             {
+                Serial.println("maxtorque being set to ZERO by IsThrottleActive()!!!!");
                 maxtorque = 0;
             }
             // maxTorqueSignal = (int16_t)maxtorque;
 
             Serial.printf("Max Torque: %d\n", maxtorque);
-            uint8_t torqueResult = 0;
-            if (maxtorque < 0)
-            {
-                Serial.println("Negative torque");
-                torqueResult = 0;
-            }
-            else if (maxtorque > MAX_TORQUE_ALLOWED)
-            {
-                Serial.println("Max torque");
-                torqueResult = MAX_TORQUE_ALLOWED;
-            }
-            else
-            {
-                Serial.println("Normal torque");
-                torqueResult = maxtorque;
-            }
-
-            Serial.printf("Torque Result: %d\n", torqueResult);
-
+            
             inverter.RequestTorque(maxtorque); //maxtorque
             break;
     }
